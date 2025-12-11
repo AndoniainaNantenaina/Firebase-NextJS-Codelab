@@ -9,6 +9,8 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
+  Timestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -31,10 +33,51 @@ const updateWithRating = async (
   newRatingDocument,
   review
 ) => {
+  const restaurant = await transaction.get(docRef);
+  const data = restaurant.data();
+  const newNumRatings = data?.numRatings ? data.numRatings + 1 : 1;
+  const newSumRating = (data?.sumRating || 0) + Number(review.rating);
+  const newAvgRating = newSumRating / newNumRatings;
+
+  transaction.update(docRef, {
+    numRatings: newNumRatings,
+    sumRating: newSumRating,
+    avgRating: newAvgRating,
+  });
+
+  transaction.set(newRatingDocument, {
+    ...review,
+    timestamp: Timestamp.fromDate(new Date()),
+  });
   return;
 };
 
 export async function addReviewToRestaurant(db, restaurantId, review) {
+  if (!restaurantId) {
+    throw new Error("No restaurant ID has been provided.");
+  }
+
+  if (!review) {
+    throw new Error("A valid review has not been provided.");
+  }
+
+  try {
+    const docRef = doc(collection(db, "restaurants"), restaurantId);
+    const newRatingDocument = doc(
+      collection(db, `restaurants/${restaurantId}/ratings`)
+    );
+
+    // corrected line
+    await runTransaction(db, async (transaction) =>
+      updateWithRating(transaction, docRef, newRatingDocument, review)
+    );
+  } catch (error) {
+    console.error(
+      "There was an error adding the review to the restaurant",
+      error
+    );
+    throw error;
+  }
   return;
 }
 
